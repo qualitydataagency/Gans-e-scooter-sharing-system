@@ -1,0 +1,136 @@
+# 1. import libraries
+from bs4 import BeautifulSoup
+import requests
+import pandas as pd
+
+import numpy as np
+
+import re
+
+!pip install --upgrade beautifulsoup4
+
+# 2. find url and store it in a variable
+url = "https://en.wikipedia.org/wiki/Berlin"
+
+# 3. download html with a get request
+response = requests.get(url)
+response.status_code # 200 status code means OK!
+
+# 4.1. parse html (create the 'soup')
+soup = BeautifulSoup(response.content, "html.parser")
+# 4.2. check that the html code looks like it should
+soup
+
+# 5. retrieve/extract the desired info (here, you'll paste the "Selector" you copied before to get the element that belongs to the top movie)
+
+# let's first try to get the name of the city
+# by copying the selector we can see that it has the id firstHeading (it also has a class by the same name!)
+soup.select("#firstHeading")
+
+soup.select("#firstHeading")[0].get_text()
+
+# Let's use this class, infobox-data, to target the information country
+soup.select(".infobox-data")[0].get_text()
+
+def recreate_wiki(cities):
+  # empty list that will be filled with one dictionary of information per city
+  list_for_df = []
+    
+  # begin a for loop to create a dictionary of information for each city
+  for city in cities:
+  # we can use the universal nature of wikipedias urls to our advantage here
+ # all of the urls are the same besides the city name
+    url = f'https://en.wikipedia.org/wiki/{city}'
+    
+    # here we make our soup for the city
+    r = requests.get(url)
+    soup = BeautifulSoup(r.content, 'html.parser')
+    
+        # here we initialise our empty dictionary for the city
+    response_dict = {}
+    
+    # here we fill the dictionary with information using the ids, classes, and selectors that we found in the html
+    response_dict['city'] = soup.select(".firstHeading")[0].get_text()
+    response_dict['country'] = soup.select(".infobox-data")[0].get_text()
+    response_dict['latitude'] = soup.select(".latitude")[0].get_text()
+    response_dict['longitude'] = soup.select(".longitude")[0].get_text()
+    # not all of the wikipedia pages contain elevation, look at Hamburg
+    # the if clause means that our code can continue and won't stop at this hurdle
+    if soup.select_one('.infobox-label:-soup-contains("Elevation")'):
+      response_dict['elevation'] = soup.select_one('.infobox-label:-soup-contains("Elevation")').find_next(class_='infobox-data').get_text()
+    response_dict['website'] = soup.select_one('.infobox-label:-soup-contains("Website")').find_next(class_='infobox-data').get_text()
+    if soup.select_one('th.infobox-header:-soup-contains("Population")'):
+        response_dict['population'] = soup.select_one('th.infobox-header:-soup-contains("Population")').parent.find_next_sibling().find(text=re.compile(r'\d+'))
+        
+    # add our dictionary for the city to list_for_df
+    list_for_df.append(response_dict)
+    
+    # make the DataFrame
+  cities_df = pd.DataFrame(list_for_df)
+    
+  # fixing latitude
+  cities_df['latitude'] = cities_df['latitude'].str.split('″').str[0].str.replace('°', '.', regex=False).str.replace('′', '', regex=False)
+  # fixing longitude
+  cities_df['longitude'] = cities_df['longitude'].str.split('″').str[0].str.replace('°', '.', regex=False).str.replace('′', '', regex=False)
+  # fixing elevation
+  cities_df.insert(4, 'elevation_in_meters', cities_df['elevation'].str.split('m').str[0].str.strip())
+
+  # return the DataFrame
+  return cities_df
+
+###User defined inputs####
+
+list_of_cities = ['Berlin', 'Hamburg', 'London', 'Manchester', 'Barcelona']
+recreate_wiki(list_of_cities)
+
+####Create data frame#####
+
+population_gans = recreate_wiki(list_of_cities)
+
+population_gans
+
+####Inserting city_id coloumn and its value
+
+condition1 = population_gans['city'] == 'Berlin'
+value1 = 128
+
+condition2 = population_gans['city'] == 'London'
+value2 = 24
+
+condition3 = population_gans['city'] == 'Hamburg'
+value3 = 122
+
+condition4 = population_gans['city'] == 'Manchester'
+value4 = 67
+
+condition5 = population_gans['city'] == 'Barcelona'
+value5 = 40
+
+
+# Use numpy.where to add a new column with fixed integer values
+
+population_gans['city_id'] = np.where(
+    condition1, value1,
+    np.where(condition2, value2,
+        np.where(condition3, value3,
+            np.where(condition4, value4,
+                np.where(condition5, value5, None)
+            )
+        )
+    )
+)
+
+#SQLAlchemy
+
+import sqlalchemy
+
+!pip install pymysql
+
+schema="gans_data_base" # renamed from "iss_workshop"
+host="0.0.0.1"
+user="root"
+password="xxxxx"
+port=0000
+con = f'mysql+pymysql://{user}:{password}@{host}:{port}/{schema}'
+
+population_gans.to_sql('population_gans_1', con=con, index=False)
