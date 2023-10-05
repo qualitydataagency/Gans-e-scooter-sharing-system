@@ -1,0 +1,38 @@
+# Import Python libraries
+
+import pandas as pd
+
+# Create a dictionary
+data = {
+    'airport_icao': ['LTBJ', 'LEMD', 'LTFM', 'OTHH', 'EDBB', 'EDDH', 'EGLC', 'EGCC'],
+    
+    'airport_name': ['İzmir', 'Madrid', 'Istanbul', 'Doha', 'Berlin', 'Hamburg', 'London', 'Manchester']
+}
+
+# Create a DataFrame from the dictionary
+df = pd.DataFrame(data)
+
+# Display the DataFrame
+print(df)
+
+# Create a data frame
+
+airports = df
+
+# SQLAlchemy
+
+import sqlalchemy
+
+!pip install pymysql
+
+schema="gans_data_base" # renamed from "iss_workshop"
+host="0.0.0.0"
+user="root"
+password="xxxxxx"
+port=xxxx
+con = f'mysql+pymysql://{user}:{password}@{host}:{port}/{schema}'
+
+airports.to_sql('airports_1',
+              if_exists='append', 
+              con=con, 
+              index=False)
