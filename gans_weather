@@ -1,0 +1,155 @@
+import pandas as pd
+import requests
+from datetime import datetime
+import pytz
+
+import numpy as np
+
+#Solution using a for loop First we need to take a look at the JSON so we know what we're dealing with.
+
+#We can view what the JSON contains by checking out the documentation on the OWM website Or this can be done manually, like below:
+
+city = 'Berlin'
+API_key = 'XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX'
+
+# check out the docs for more info on making an api call https://openweathermap.org/forecast5
+url = (f"http://api.openweathermap.org/data/2.5/forecast?q={city}&appid={API_key}&units=metric")
+
+response = requests.get(url)
+json = response.json()
+json
+
+tz = pytz.timezone('Europe/Berlin')
+now = datetime.now().astimezone(tz)
+now
+
+# we'll store the information in this dicitonary:
+weather_dict = {'city': [],
+                'country': [],
+                'forecast_time': [],
+                'outlook': [],
+                'detailed_outlook': [],
+                'temperature': [],
+                'temperature_feels_like': [],
+                'clouds': [],
+                'rain': [],
+                'snow': [],
+                'wind_speed': [],
+                'wind_deg': [],
+                'humidity': [],
+                'pressure': []}
+                #'information_retrieved_at': []}
+
+# let's begin the loop
+for i in json['list']:
+    weather_dict['city'].append(json['city']['name'])
+    weather_dict['country'].append(json['city']['country'])
+    weather_dict['forecast_time'].append(i['dt_txt'])
+    weather_dict['outlook'].append(i['weather'][0]['main'])
+    weather_dict['detailed_outlook'].append(i['weather'][0]['description'])
+    weather_dict['temperature'].append(i['main']['temp'])
+    weather_dict['temperature_feels_like'].append(i['main']['feels_like'])
+    weather_dict['clouds'].append(i['clouds']['all'])
+  # sometimes the data is missing for rain and snow. As it is not always raining or snowing
+  # we cannot make a DataFrame unless the lists are all the same length, therefore missing values are bad
+  # here we say try to append a value if there is one. If not, append a 0
+    try:
+        weather_dict['rain'].append(i['rain']['3h'])
+    except:
+        weather_dict['rain'].append('0')
+    try:
+        weather_dict['snow'].append(i['snow']['3h'])
+    except:
+        weather_dict['snow'].append('0')
+    weather_dict['wind_speed'].append(i['wind']['speed'])
+    weather_dict['wind_deg'].append(i['wind']['deg'])
+    weather_dict['humidity'].append(i['main']['humidity'])
+    weather_dict['pressure'].append(i['main']['pressure'])
+
+    #weather_dict['information_retrieved_at'].append(now.strftime("%d/%m/%Y %H:%M:%S"))
+
+weather_from_dict_df = pd.DataFrame(weather_dict)
+
+weather_from_dict_df.head()
+
+#As a final step, to keep everything tidy: let's bring everything we did together in a function. And allow the function to take a list of cities as an input
+
+def get_weather_loop(cities):
+
+  #API_key = 'YOUR_API_KEY_HERE'
+
+  tz = pytz.timezone('Europe/Berlin')
+  now = datetime.now().astimezone(tz)
+
+  weather_dict = {'city': [],
+                'country': [],
+                'forecast_time': [],
+                'outlook': [],
+                'detailed_outlook': [],
+                'temperature': [],
+                'temperature_feels_like': [],
+                'clouds': [],
+                'rain': [],
+                'snow': [],
+                'wind_speed': [],
+                'wind_deg': [],
+                'humidity': [],
+                'pressure': [],
+                'information_retrieved_at': []}
+
+  for city in cities:
+    url = (f"http://api.openweathermap.org/data/2.5/forecast?q={city}&appid={API_key}&units=metric")
+    response = requests.get(url)
+    json = response.json()
+
+    for i in json['list']:
+      weather_dict['city'].append(json['city']['name'])
+      weather_dict['country'].append(json['city']['country'])
+      weather_dict['forecast_time'].append(i['dt_txt'])
+      weather_dict['outlook'].append(i['weather'][0]['main'])
+      weather_dict['detailed_outlook'].append(i['weather'][0]['description'])
+      weather_dict['temperature'].append(i['main']['temp'])
+      weather_dict['temperature_feels_like'].append(i['main']['feels_like'])
+      weather_dict['clouds'].append(i['clouds']['all'])
+      try:
+          weather_dict['rain'].append(i['rain']['3h'])
+      except:
+          weather_dict['rain'].append('0')
+      try:
+          weather_dict['snow'].append(i['snow']['3h'])
+      except:
+          weather_dict['snow'].append('0')
+      weather_dict['wind_speed'].append(i['wind']['speed'])
+      weather_dict['wind_deg'].append(i['wind']['deg'])
+      weather_dict['humidity'].append(i['main']['humidity'])
+      weather_dict['pressure'].append(i['main']['pressure'])
+      weather_dict['information_retrieved_at'].append(now.strftime("%d/%m/%Y %H:%M:%S"))
+
+  return pd.DataFrame(weather_dict)
+
+gans_weather = get_weather_loop(['Berlin', 'London'])
+gans_weather
+
+# Define two conditions and their respective fixed integer values adding city_id
+condition1 = gans_weather['city'] == 'Berlin'
+value1 = 128
+
+condition2 = gans_weather['city'] == 'London'
+value2 = 24
+
+# Use numpy.where to add a new column with fixed integer values
+gans_weather['city_id'] = np.where(condition1, value1, np.where(condition2, value2, None))
+
+# SQLAlchemy
+
+import sqlalchemy
+!pip install pymysql
+
+schema="gans_data_base" # renamed from "iss_workshop"
+host="XXXXX"
+user="root"
+password="XXXXX"
+port=XXXX
+con = f'mysql+pymysql://{user}:{password}@{host}:{port}/{schema}'
+
+gans_weather.to_sql('weather_1', con=con, index=False)
