@@ -1,0 +1,376 @@
+# Gans lambda function an automated script for data frames transfer from AWS to MySQL. Preparation for AWS lambda upload.
+
+# Sollution by DSK for first three data frames sintax checked. Sintax sensitive lamda environment, check sintax for remaining scripts.
+
+# Import pandas libraries
+
+import pandas as pd
+import sqlalchemy
+!pip install pymysql
+
+from datetime import datetime, date, timedelta
+import requests
+from pytz import timezone
+
+from bs4 import BeautifulSoup
+import requests
+import numpy as np
+import re
+
+!pip install --upgrade beautifulsoup4
+
+from datetime import datetime
+import pytz
+
+#Gans_airports
+
+# Create a dictionary
+data = {
+    'airport_icao': ['LTBJ', 'LEMD', 'LTFM', 'OTHH', 'EDBB', 'EDDH', 'EGLC', 'EGCC'],
+    'airport_name': ['İzmir', 'Madrid', 'Istanbul', 'Doha', 'Berlin', 'Hamburg', 'London', 'Manchester']
+}
+
+# Create a DataFrame from the dictionary
+
+df = pd.DataFrame(data)
+
+airports = df
+
+airports
+
+# Lambda handler, con must be in the block under def lambda directly
+
+def lambda_handler(event, context):
+    schema = "test_1"
+    host = "wbsdatabasetest.c9tgxgea9sqh.eu-north-1.rds.amazonaws.com"
+    user = "XXXX"
+    password = "XXXX*"
+    port = XXXX
+    con = f"mysql+pymysql://{user}:{password}@{host}:{port}/{schema}"
+
+    # SQLalchemy write to the database
+    airports.to_sql('airports_lambda', if_exists='append', con=con, index=False)
+
+#Gans_flights
+
+### User defined inputs ### "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+
+    API_KEY = "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+
+    # Get today's date in Berlin timezone
+    today = datetime.now().astimezone(timezone('Europe/Berlin')).date()
+    # Calculate tomorrow's date
+    tomorrow = (today + timedelta(days=1))
+    # Define time window
+    time = ["00:00","11:59"]
+    # if more than 12h than you will see this error message: {'message': 'The duration of the requested period of time must be positive and must not be more than 12 hours in duration'}
+
+    # Define icao of Berlin
+    icao = "EDDB"
+
+    # API url
+    url = f"https://aerodatabox.p.rapidapi.com/flights/airports/icao/{icao}/{tomorrow}T{time[0]}/{tomorrow}T{time[1]}"
+
+    # API headers
+    headers = {
+        "X-RapidAPI-Key": API_KEY,
+        "X-RapidAPI-Host": "aerodatabox.p.rapidapi.com"
+    }
+    # API parameter
+    querystring = {"withLeg":"true","direction":"Arrival","withCancelled":"false","withCodeshared":"true","withCargo":"false","withPrivate":"false"}
+
+    # API call
+    response = requests.request("GET", url, headers=headers, params=querystring)
+
+    # Parse the JSON response
+    flights_json = response.json()
+    print(flights_json)
+
+    def get_tomorrows_flight_arrivals(icao_list):
+      # Get today's date in Berlin timezone
+      today = datetime.now().astimezone(timezone('Europe/Berlin')).date()
+      # Calculate tomorrow's date
+      tomorrow = (today + timedelta(days=1))
+
+      # Initialize an empty list to store flight data
+      list_for_df = []
+
+      # Loop over each ICAO code in the input list
+      for icao in icao_list:
+        # Define the two time periods for which to fetch data
+        times = [["00:00","11:59"],["12:00","23:59"]]
+
+        # Loop over each time period
+        for time in times:
+          # Construct the URL for the API request
+          url = f"https://aerodatabox.p.rapidapi.com/flights/airports/icao/{icao}/{tomorrow}T{time[0]}/{tomorrow}T{time[1]}"
+          # Define the query parameters for the API request
+          querystring = {"withLeg":"true","direction":"Arrival","withCancelled":"false","withCodeshared":"true","withCargo":"false","withPrivate":"false"}
+          # Define the headers for the API request
+          headers = {
+              'x-rapidapi-host': "aerodatabox.p.rapidapi.com",
+              'x-rapidapi-key': API_KEY
+
+
+              }
+          # Make the API request
+          response = requests.request("GET", url, headers=headers, params=querystring)
+          print(response)
+          # Parse the JSON response
+          flights_json = response.json()
+
+          # Loop over each flight in the response
+          for flight in flights_json['arrivals']:
+            # Initialize an empty dictionary to store flight data
+            flights_dict = {}
+            # Store the ICAO code and flight data in the dictionary
+            flights_dict['arrival_icao'] = icao
+            # Use the .get() method to avoid KeyError if a key doesn't exist in the dictionary
+            flights_dict['arrival_time_local'] = flight['arrival'].get('scheduledTimeLocal', None)
+            flights_dict['arrival_terminal'] = flight['arrival'].get('terminal', None)
+            flights_dict['departure_city'] = flight['departure']['airport'].get('name', None)
+            flights_dict['departure_icao'] = flight['departure']['airport'].get('icao', None)
+            flights_dict['departure_time_local'] = flight['departure'].get('scheduledTimeLocal', None)
+            flights_dict['airline'] = flight['airline'].get('name', None)
+            flights_dict['flight_number'] = flight.get('number', None)
+            # Store the current date in Berlin timezone
+            flights_dict['data_retrieved_on'] = datetime.now().astimezone(timezone('Europe/Berlin')).date()
+            # Append the flight dictionary to the list
+            list_for_df.append(flights_dict)
+
+      # Convert the list of flight dictionaries to a DataFrame and return it
+      return pd.DataFrame(list_for_df)
+
+    ### User defined inputs ###
+
+    icaos = ['EDDB', 'EGLL']
+    get_tomorrows_flight_arrivals(icaos)
+
+    flights_data_frame = get_tomorrows_flight_arrivals(icaos)
+
+# Iterate through the list of departure city, create city_id and create unique integer for each city
+
+    flights_data_frame['city_id'] = flights_data_frame['departure_city'].factorize()[0] + 1
+
+#SQLalchemy
+
+    flights_data_frame.to_sql('flights_lambda',if_exists='append',con=con,index=False)
+
+#Gans_population
+
+def recreate_wiki(cities):
+  # empty list that will be filled with one dictionary of information per city
+  list_for_df = []
+    
+  # begin a for loop to create a dictionary of information for each city
+  for city in cities:
+  # we can use the universal nature of wikipedias urls to our advantage here
+ # all of the urls are the same besides the city name
+    url = f'https://en.wikipedia.org/wiki/{city}'
+    
+    # here we make our soup for the city
+    r = requests.get(url)
+    soup = BeautifulSoup(r.content, 'html.parser')
+    
+        # here we initialise our empty dictionary for the city
+    response_dict = {}
+    
+    # here we fill the dictionary with information using the ids, classes, and selectors that we found in the html
+    response_dict['city'] = soup.select(".firstHeading")[0].get_text()
+    response_dict['country'] = soup.select(".infobox-data")[0].get_text()
+    response_dict['latitude'] = soup.select(".latitude")[0].get_text()
+    response_dict['longitude'] = soup.select(".longitude")[0].get_text()
+    # not all of the wikipedia pages contain elevation, look at Hamburg
+    # the if clause means that our code can continue and won't stop at this hurdle
+    if soup.select_one('.infobox-label:-soup-contains("Elevation")'):
+      response_dict['elevation'] = soup.select_one('.infobox-label:-soup-contains("Elevation")').find_next(class_='infobox-data').get_text()
+    response_dict['website'] = soup.select_one('.infobox-label:-soup-contains("Website")').find_next(class_='infobox-data').get_text()
+    if soup.select_one('th.infobox-header:-soup-contains("Population")'):
+        response_dict['population'] = soup.select_one('th.infobox-header:-soup-contains("Population")').parent.find_next_sibling().find(text=re.compile(r'\d+'))
+        
+    # add our dictionary for the city to list_for_df
+    list_for_df.append(response_dict)
+    
+    # make the DataFrame
+  cities_df = pd.DataFrame(list_for_df)
+    
+  # fixing latitude
+  cities_df['latitude'] = cities_df['latitude'].str.split('″').str[0].str.replace('°', '.', regex=False).str.replace('′', '', regex=False)
+  # fixing longitude
+  cities_df['longitude'] = cities_df['longitude'].str.split('″').str[0].str.replace('°', '.', regex=False).str.replace('′', '', regex=False)
+  # fixing elevation
+  cities_df.insert(4, 'elevation_in_meters', cities_df['elevation'].str.split('m').str[0].str.strip())
+
+  # return the DataFrame
+  return cities_df
+
+list_of_cities = ['Berlin', 'Hamburg', 'London', 'Manchester', 'Barcelona']
+recreate_wiki(list_of_cities)
+
+population_gans = recreate_wiki(list_of_cities)
+
+condition1 = population_gans['city'] == 'Berlin'
+value1 = 128
+
+condition2 = population_gans['city'] == 'London'
+value2 = 24
+
+condition3 = population_gans['city'] == 'Hamburg'
+value3 = 122
+
+condition4 = population_gans['city'] == 'Manchester'
+value4 = 67
+
+condition5 = population_gans['city'] == 'Barcelona'
+value5 = 40
+
+
+# Use numpy.where to add a new column with fixed integer values
+
+population_gans['city_id'] = np.where(
+    condition1, value1,
+    np.where(condition2, value2,
+        np.where(condition3, value3,
+            np.where(condition4, value4,
+                np.where(condition5, value5, None)
+            )
+        )
+    )
+)
+
+#Gans_cities
+
+cities = flights_data_frame[["city_id", "departure_city", "airline"]]
+cities = cities.rename(columns={'airline': 'country_code'})
+cities['country_code'] = ''
+
+#Gans_weather
+
+city = 'Berlin'
+API_key = 'xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx'
+
+# check out the docs for more info on making an api call https://openweathermap.org/forecast5
+url = (f"http://api.openweathermap.org/data/2.5/forecast?q={city}&appid={API_key}&units=metric")
+
+response = requests.get(url)
+json = response.json()
+
+json
+
+tz = pytz.timezone('Europe/Berlin')
+now = datetime.now().astimezone(tz)
+
+now
+
+# we'll store the information in this dicitonary:
+weather_dict = {'city': [],
+                'country': [],
+                'forecast_time': [],
+                'outlook': [],
+                'detailed_outlook': [],
+                'temperature': [],
+                'temperature_feels_like': [],
+                'clouds': [],
+                'rain': [],
+                'snow': [],
+                'wind_speed': [],
+                'wind_deg': [],
+                'humidity': [],
+                'pressure': []}
+                #'information_retrieved_at': []}
+
+# let's begin the loop
+for i in json['list']:
+  weather_dict['city'].append(json['city']['name'])
+  weather_dict['country'].append(json['city']['country'])
+  weather_dict['forecast_time'].append(i['dt_txt'])
+  weather_dict['outlook'].append(i['weather'][0]['main'])
+  weather_dict['detailed_outlook'].append(i['weather'][0]['description'])
+  weather_dict['temperature'].append(i['main']['temp'])
+  weather_dict['temperature_feels_like'].append(i['main']['feels_like'])
+  weather_dict['clouds'].append(i['clouds']['all'])
+  # sometimes the data is missing for rain and snow. As it is not always raining or snowing
+  # we cannot make a DataFrame unless the lists are all the same length, therefore missing values are bad
+  # here we say try to append a value if there is one. If not, append a 0
+  try:
+      weather_dict['rain'].append(i['rain']['3h'])
+  except:
+      weather_dict['rain'].append('0')
+  try:
+      weather_dict['snow'].append(i['snow']['3h'])
+  except:
+      weather_dict['snow'].append('0')
+  weather_dict['wind_speed'].append(i['wind']['speed'])
+  weather_dict['wind_deg'].append(i['wind']['deg'])
+  weather_dict['humidity'].append(i['main']['humidity'])
+  weather_dict['pressure'].append(i['main']['pressure'])
+  #weather_dict['information_retrieved_at'].append(now.strftime("%d/%m/%Y %H:%M:%S"))
+
+weather_from_dict_df = pd.DataFrame(weather_dict)
+
+weather_from_dict_df.head()
+
+def get_weather_loop(cities):
+
+  #API_key = 'YOUR_API_KEY_HERE'
+
+  tz = pytz.timezone('Europe/Berlin')
+  now = datetime.now().astimezone(tz)
+
+  weather_dict = {'city': [],
+                'country': [],
+                'forecast_time': [],
+                'outlook': [],
+                'detailed_outlook': [],
+                'temperature': [],
+                'temperature_feels_like': [],
+                'clouds': [],
+                'rain': [],
+                'snow': [],
+                'wind_speed': [],
+                'wind_deg': [],
+                'humidity': [],
+                'pressure': [],
+                'information_retrieved_at': []}
+
+  for city in cities:
+    url = (f"http://api.openweathermap.org/data/2.5/forecast?q={city}&appid={API_key}&units=metric")
+    response = requests.get(url)
+    json = response.json()
+
+    for i in json['list']:
+      weather_dict['city'].append(json['city']['name'])
+      weather_dict['country'].append(json['city']['country'])
+      weather_dict['forecast_time'].append(i['dt_txt'])
+      weather_dict['outlook'].append(i['weather'][0]['main'])
+      weather_dict['detailed_outlook'].append(i['weather'][0]['description'])
+      weather_dict['temperature'].append(i['main']['temp'])
+      weather_dict['temperature_feels_like'].append(i['main']['feels_like'])
+      weather_dict['clouds'].append(i['clouds']['all'])
+      try:
+          weather_dict['rain'].append(i['rain']['3h'])
+      except:
+          weather_dict['rain'].append('0')
+      try:
+          weather_dict['snow'].append(i['snow']['3h'])
+      except:
+          weather_dict['snow'].append('0')
+      weather_dict['wind_speed'].append(i['wind']['speed'])
+      weather_dict['wind_deg'].append(i['wind']['deg'])
+      weather_dict['humidity'].append(i['main']['humidity'])
+      weather_dict['pressure'].append(i['main']['pressure'])
+      weather_dict['information_retrieved_at'].append(now.strftime("%d/%m/%Y %H:%M:%S"))
+
+  return pd.DataFrame(weather_dict)
+
+gans_weather = get_weather_loop(['Berlin', 'London'])
+
+# Define two conditions and their respective fixed integer values
+condition1 = gans_weather['city'] == 'Berlin'
+value1 = 128
+
+condition2 = gans_weather['city'] == 'London'
+value2 = 24
+
+# Use numpy.where to add a new column with fixed integer values
+gans_weather['city_id'] = np.where(condition1, value1, np.where(condition2, value2, None))
